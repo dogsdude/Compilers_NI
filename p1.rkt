@@ -10,7 +10,6 @@
 
 (require test-engine/racket-tests)
 
-
 (define-tokens value-tokens (NUM ID STRING))
 (define-empty-tokens paren-types (LPAREN RPAREN LBRACKET RBRACKET LBRACE RBRACE))
 (define-empty-tokens operators (ADD MULT DIV SUB DOT))
@@ -26,6 +25,8 @@
 
 (define nilex
          (lexer-src-pos
+
+          ;Values, Types, Operators, Punctuation, Comparators, Boolean Operations
           [#\(               (token-LPAREN)]
           [#\)               (token-RPAREN)]
           [#\[               (token-LBRACKET)]
@@ -41,14 +42,14 @@
           [#\:               (token-COLON)]
           [#\;               (token-SEMI)]
           [#\=               (token-EQ)]
-          ;NE? Ask Jeff what this means?
           [#\<               (token-LT)]
           ["<="              (token-LE)]
           [#\>               (token-GT)]
           [">="              (token-GE)]
           [#\|               (token-BOOLOR)]
           [#\&               (token-BOOLAND)]
-          
+
+          ;Keywords
           [(:or "AND" "And" "and")         (token-AND)]
           [(:or "ARRAY" "Array" "array")   (token-ARRAY)]
           [(:or "AS" "As" "as")            (token-AS)]
@@ -73,17 +74,25 @@
           [(:or "WHILE" "While" "while")   (token-WHILE)]
           [(:or "WITH" "With" "with")      (token-WITH)]
 
+          ;EOF
           [(eof) (token-EOF)]
 
-          
           ;Num
           [(:+ numeric) (token-NUM lexeme)]
+          
           ;Identifier
           [(:: (:+ alphabetic) (:* (:or numeric alphabetic #\_ #\-))(:* #\')) (token-ID lexeme)]
+          
           ;String
-          [(:: #\" (:or numeric alphabetic symbolic whitespace) #\") (token-STRING lexeme)]
+          [(:: #\" (:* (:or (:: #\\ any-char)(complement (:or #\\ #\")))) #\") (token-STRING lexeme)]
 
-          [(:: #\\ (:or numeric alphabetic symbolic whitespace)) #\\ ]
+          ;Single Line Comment
+          [(:: "//" any-string #\newline) (return-without-pos (nilex input-port)) ]
+
+          ;Block Comment
+          [(:: "/*" (complement (:: any-string "*/" any-string)) "*/") (return-without-pos (nilex input-port))]
+
+          ;White Space
           [whitespace (return-without-pos (nilex input-port))]
           
           ))
@@ -134,7 +143,8 @@
 ; and then reads tokens until the end is reached
 (define (lexfile filename)
   (lex (open-input-file filename)))
-          
+
+;Test Cases
 (check-expect (lexstr "and") (list (token-AND)))
 (check-expect (lexstr "array") (list (token-ARRAY)))
 (check-expect (lexstr "as") (list (token-AS)))
@@ -188,5 +198,4 @@ there */") '())
 (check-expect (lexstr "\"\\\\\"a\"\"") (list (token-STRING "\"\\\\\"") (token-ID "a") (token-STRING "\"\"")))
 (check-expect (lexstr "\"you had me at \\\"hello\\\"\"") (list (token-STRING "\"you had me at \\\"hello\\\"\"")))          
           
-
 (test)
