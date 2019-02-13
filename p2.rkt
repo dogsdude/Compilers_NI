@@ -1,4 +1,7 @@
 #lang racket
+
+;;;Sam Lindsey, 2/8/2019, Parser Project for Ni
+
 ; needed for parsing stuff
 (require parser-tools/yacc
          
@@ -10,7 +13,7 @@
 (require test-engine/racket-tests)
 
 
-
+(provide (all-defined-out))
 
 ; var declarations
 (struct VarDecl (type id expr) #:transparent)
@@ -34,7 +37,7 @@
 ; variable expressions
 (struct VarExpr (name) #:transparent)
 ;bool (just the type)
-(struct Bool (val) #:transparent)
+(struct BoolVal (val) #:transparent)
 ; record expressions (name and a list of fields are required)
 (struct RecordExpr (name field) #:transparent)
 ; array expressions (name and expression for the index)
@@ -96,7 +99,7 @@
 (define niparser
   (parser
    (src-pos)
-   (start expression)
+   (start program)
    (end EOF)
    (tokens value-tokens paren-types operators punctuation comparators boolops keywords endoffile)
    ; Implement Error Method so we can tell where the parser fails
@@ -105,33 +108,52 @@
                 (printf "Parsing error at line ~a, col ~a: token: ~a, value: ~a, tok-ok? ~a\n"
                         (lex:position-line start-pos) (lex:position-col start-pos) tok-name tok-value tok-ok?))))
    (grammar
-    
-    ;;expressions, there are many of them
 
+    (program
+     [(expression) (list $1)])
+  
+     ;Typefields
+     ;Are used in our type declarations so we define them here
+    (typefields
+     
+     [(type-id ID COMMA typefields)    (cons (TypeField $1 $2) $4)]
+     [(type-id ID)  (cons (TypeField $1 $2) '())])
+     
+     ;Type-field 
      ;Used in our type declaration, a type-id must be an ID
-    ;Used here because it is referred as a type-id frequentally in the documentation
+     ;Used here because it is referred as a type-id frequentally in the documentation
     (type-id
      [(ID)      $1])
 
-    ; ;Typefields are used in our type declarations so we define them here
-;     ;TODO:: I think the pattern matching here is wrong... RECORD AND ARRAY EXPR?
-;     (typefields
-;      [(type-id ID LPAREN COMMA type-id id RPAREN) 
-; 
-;     ;Again, we use this here to pattern match on certain cases of a ty in the type declaration
-;     (ty
-;      [(type-id)  $1]
-;      [(LBRACE typefields RBRACE)  $2]
-;      [(ARRAY OF type-id) $3
-
+     ;Mutually Recursive, it could be any of these things called again or the same one -> definition of mutual vs normal recursion
+    (recurse
+     
+     ;Non-recursive
+     ;Name
+     [(type-id KIND AS type-id) (NameType $1 $4 '())]
+     ;Records
+     [(type-id KIND AS LBRACE typefields RBRACE) (RecordType $1 $5 '())]
+     ;Arrays
+     [(type-id KIND AS ARRAY OF type-id) (ArrayType $1 $6 '())]
+     
+     ;Recursive
+     ;Name
+     [(type-id KIND AS type-id AND DEFINE recurse)   (NameType $1 $4 $7)]
+     ;Records
+     [(type-id KIND AS LBRACE typefields RBRACE AND DEFINE recurse) (RecordType $1 $5 $9)]
+     ;Arrays
+     [(type-id KIND AS ARRAY OF type-id AND DEFINE recurse)  (ArrayType $1 $6 $9)])
 
     ;;;Is everything an expression or do they each need own section?
     (expression
-
+     
+     ;Type Declaration
+     [(DEFINE recurse)        $2]
+     
      ;Variable Declarations
      [(NI type-id ID IS expression) (VarDecl $2 $3 $5)]
      ;This may need to be changed!
-     [(NI ID IS expression) (VarDecl $2 #f $4)]
+     [(NI ID IS expression) (VarDecl #f $2 $4)]
 
      ;Integer Declaration
      [(NUM) (NumExpr $1)]
@@ -140,10 +162,7 @@
      [(STRING) (StringExpr $1)]
 
      ;Boolean Declarations
-     [(BOOL)  (Bool $1)]
-
-     ;Type Declaration... How to pull from arraytype or int,bool,str, or record...? What is this next thing?
-     ;[(DEFINE ID KIND AS ty) (]
+     [(BOOL)  (BoolVal $1)]
 
      ; ;Function Declarations... What is this next thing? Mutual recursion? What?
 ;      FunDecl (name args rettype body next)
@@ -170,6 +189,7 @@
      ;[(LPAREN expression SEMI expression)*]
 
      ;No Value
+     ;(NoValue
      [(LPAREN RPAREN)    (NoVal)]
      ;A let expression with nothing between in and end does not yield a value.
      ;[(LET 
@@ -178,11 +198,121 @@
      ;[(SUB NUM)
 
      ;Function Call
+     ;(FuncCall
+     ;[(ID LPAREN RPAREN)   (FuncallExpr
+     ;[(ID LPAREN expression RBRACE COMMA expression RBRACE * LPAREN)    (FuncallExpr
 
      ;Arithmetic
+     ;(arithmetic
+     [(expression ADD expression)    (MathExpr  $1 '+ $3)]
+     [(expression SUB expression)    (MathExpr  $1 '- $3)]
+     [(expression DIV expression)    (MathExpr  $1 '/ $3)]
+     [(expression MULT expression)   (MathExpr  $1 '* $3)]
+     
 
      ;Boolean Comparison
-
+     ;(BoolComp
+     [(expression EQ expression)     (BoolExpr $1 'eq $3)]
+     [(expression LT expression)     (BoolExpr $1 'lt $3)]
+     [(expression LE expression)     (BoolExpr $1 'le $3)]
+     [(expression GE expression)     (BoolExpr $1 'ge $3)]
+     [(expression GT expression)     (BoolExpr $1 'gt $3)]
+      
+     ;;; <> ???
+     ;[(expression
+      
      ;String Comparison
+     ;[(STRING op STRING)       
+       
+     ;Logic Operators, sub expression must be boolean expressions
+     ;(LogOp
+     [(expression BOOLOR expression)   (LogicExpr $1 'or  $3)]
+     [(expression BOOLAND expression)  (LogicExpr $1 'and $3)]
+     
+     ;Presedence of Operators... Nope
+
+     ;Associativity of operators... Nope
+
+     ;Record Creation
+     ;type-id '{'id is expr (, id is expr)*'}' or type-id '{' '}', for an empty expression, creates a new record of type type-id
+     ;(RecordCreate
+     ;[(type-id LBRACE ID IS expression LPAREN COMMA ID IS expression RPAREN MULT RBRACE) (NewRecordExpr
+     ;[(type-id LBRACE RBRACE) (NewRecordExpr $1 '())]
+
+     ;Array Creation
+     ;The expression type-id '[' expr ']' of expr2 evaluations expr and expr2 (in that order) to find the number of elements and the initial value
+     [(type-id LBRACKET expression RBRACKET OF expression)    (NewArrayExpr $1 $3 $6)]
+
+     ;Array & Record Assignment... Nope
+
+     ;Extent... Nope
+     
+     ;Assignment... Nope
+
+     ;if-then-else
+     ;(conditionals
+     [(IF expression THEN expression ELSE expression END)    (IfExpr $2 $4 $6)]
+
+     ;if-then, looks the same as an if-then-else, but with no false-branch -> put the empty list instead
+     [(IF expression THEN expression END) (IfExpr $2 $4 '())]  
+
+     ;while
+     [(WHILE expression DO expression END) (WhileExpr $2 $4)]
+     
+     ;with, id - initexpr - fromexpr - toexpr
+     [(ID AS expression TO expression DO expression END) (WithExpr $1 $3 $5 $7)]
+     
+     ;break.... Nope
+     
+     ;let
+     ;let decs in exprseq end
+     ;[(LET 
+
+     ;Parentheses
     
      ))))
+
+
+;;;TEST CASES
+
+; var declarations
+(check-expect (parse-str "ni x is 5") (list (VarDecl #f "x" (NumExpr "5"))))
+; type declarations
+(check-expect (parse-str "define int2 kind as int") (list (NameType "int2" "int" '())))
+(check-expect (parse-str "define intarr kind as array of int") (list (ArrayType "intarr" "int" '())))
+(check-expect (parse-str "define intrec kind as { int x }")
+              (list (RecordType "intrec" (list (TypeField "x" "int")) '())))
+; function declarations
+(check-expect (parse-str "neewom getX() as int is 5")
+              (list (FunDecl "getX" '() "int" (NumExpr "5") '())))
+; function calls of various sorts
+(check-expect (parse-str "add2(5)") (list (FuncallExpr "add2" (list (NumExpr "5")))))
+; parens
+(check-expect (parse-str "(5)") (list (NumExpr "5")))
+; various sequences
+(check-expect (parse-str "(6; 5)") (list (list (NumExpr "6") (NumExpr "5"))))
+; strings
+(check-expect (parse-str "\"Hello World\"") (list (StringExpr "\"Hello World\"")))
+; noval
+(check-expect (parse-str "()") (list (NoVal)))
+; let expressions
+(check-expect (parse-str "let ni x is 5 in x end")
+              (list (LetExpr (list (VarDecl #f "x" (NumExpr "5"))) (list (VarExpr "x")))))
+; math ops
+(check-expect (parse-str "1+2")
+              (list (MathExpr (NumExpr "1") '+ (NumExpr "2"))))
+; math ops using negated numbers
+(check-expect (parse-str "-5") (list (MathExpr (NumExpr "0") '- (NumExpr "5"))))
+
+; bool expressions
+(check-expect (parse-str "5=6") (list (BoolExpr (NumExpr "5") 'eq (NumExpr "6"))))
+
+; array creation
+(check-expect (parse-str "intarr[10] of 6")
+              (list (NewArrayExpr "intarr" (NumExpr "10") (NumExpr "6"))))
+
+; record expression
+(check-expect (parse-str "point { x is 6 }")
+              (list (NewRecordExpr "point" (list (FieldAssign "x" (NumExpr "6"))))))
+
+(test)
