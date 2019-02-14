@@ -15,6 +15,8 @@
 
 (provide (all-defined-out))
 
+;;;STRUCTS TO STORE OUR INFO IN
+
 ; var declarations
 (struct VarDecl (type id expr) #:transparent)
 
@@ -96,6 +98,7 @@
   (let ([in (open-input-file filename)])
     (build-ast in)))
 
+;The Parser itself
 (define niparser
   (parser
    (src-pos)
@@ -107,17 +110,20 @@
             (if (and (eq? tok-ok? #t) (eq? tok-name 'EOF)) '()
                 (printf "Parsing error at line ~a, col ~a: token: ~a, value: ~a, tok-ok? ~a\n"
                         (lex:position-line start-pos) (lex:position-col start-pos) tok-name tok-value tok-ok?))))
+   
+   ;Everything used in our grammar is found below
    (grammar
 
+    ;This is used to creat our list of expressions
     (program
      [(expression) (list $1)])
   
      ;Typefields
      ;Are used in our type declarations so we define them here
     (typefields
-     
-     [(type-id ID COMMA typefields)    (cons (TypeField $1 $2) $4)]
-     [(type-id ID)  (cons (TypeField $1 $2) '())])
+     [(RPAREN)  ('())]
+     [(type-id ID COMMA typefields)    (cons (TypeField $2 $1) $4)]
+     [(type-id ID)  (cons (TypeField $2 $1) '())])
      
      ;Type-field 
      ;Used in our type declaration, a type-id must be an ID
@@ -125,8 +131,8 @@
     (type-id
      [(ID)      $1])
 
-     ;Mutually Recursive, it could be any of these things called again or the same one -> definition of mutual vs normal recursion
-    (recurse
+    ;Type Declarations
+    (tydec
      
      ;Non-recursive
      ;Name
@@ -137,23 +143,55 @@
      [(type-id KIND AS ARRAY OF type-id) (ArrayType $1 $6 '())]
      
      ;Recursive
+     ;Mutually Recursive, it could be any of these things called again or the same one -> definition of mutual vs normal recursion
      ;Name
-     [(type-id KIND AS type-id AND DEFINE recurse)   (NameType $1 $4 $7)]
+     [(type-id KIND AS type-id AND DEFINE tydec)   (NameType $1 $4 $7)]
      ;Records
-     [(type-id KIND AS LBRACE typefields RBRACE AND DEFINE recurse) (RecordType $1 $5 $9)]
+     [(type-id KIND AS LBRACE typefields RBRACE AND DEFINE tydec) (RecordType $1 $5 $9)]
      ;Arrays
-     [(type-id KIND AS ARRAY OF type-id AND DEFINE recurse)  (ArrayType $1 $6 $9)])
+     [(type-id KIND AS ARRAY OF type-id AND DEFINE tydec)  (ArrayType $1 $6 $9)])
 
-    ;;;Is everything an expression or do they each need own section?
+    ;Variable Declarations
+    (varbdec
+     [(type-id ID IS expression) (VarDecl $1 $2 $4)]
+     [(ID IS expression)         (VarDecl #f $1 $3)])
+
+    ;Function Declarations
+    ;FunDecl (name args rettype body next)
+    ; defines a function in ni
+    ; these consist of the name of the function, the arguments to it,
+    ; the return type (which may be #f if it doesn't have one) and the body
+    ; finally, next points to the next, related definition (for mutual recursion)
+    (func
+     
+    ;Non-recursive
+    ;Procedure = function that does not return a value
+     [(ID LPAREN typefields RPAREN IS expression) (FunDecl $1 $3 #f $6 '())]
+     [(ID LPAREN RPAREN IS expression) (FunDecl $1 '() #f $5 '())]
+    ;Function that returns a value                                                         
+     [(ID LPAREN typefields RPAREN AS type-id IS expression) (FunDecl $1 $3 $6 $8 '())]
+     ;;BETTER WAY TO IMPLEMENT AN EMPTY TYPEFIELDS?
+     [(ID LPAREN RPAREN AS type-id IS expression) (FunDecl $1 '() $5 $7 '())]
+
+     
+    ;Recursive
+    ;Procedure
+     [(ID LPAREN typefields RPAREN IS expression AND NEEWOM func)   (FunDecl $1 $3 #f $6 $9)]
+     [(ID LPAREN RPAREN IS expression AND NEEWOM func)   (FunDecl $1 '() #f $5 $8)]
+    ;Function that returns a value
+     [(ID LPAREN typefields RPAREN AS type-id IS expression AND NEEWOM func) (FunDecl $1 $3 $6 $8 $11)]
+     [(ID LPAREN RPAREN AS type-id IS expression AND NEEWOM func) (FunDecl $1 '() $5 $7 $10)])
+
+     
+     
+    ;OUR BUNCHES AND BUNCHES OF EXPRESSIONS!
     (expression
      
      ;Type Declaration
-     [(DEFINE recurse)        $2]
+     [(DEFINE tydec)        $2]
      
      ;Variable Declarations
-     [(NI type-id ID IS expression) (VarDecl $2 $3 $5)]
-     ;This may need to be changed!
-     [(NI ID IS expression) (VarDecl #f $2 $4)]
+     [(NI varbdec)               $2]
 
      ;Integer Declaration
      [(NUM) (NumExpr $1)]
@@ -164,13 +202,9 @@
      ;Boolean Declarations
      [(BOOL)  (BoolVal $1)]
 
-     ; ;Function Declarations... What is this next thing? Mutual recursion? What?
-;      FunDecl (name args rettype body next)
-;      [(NEEWOM ID LPAREN typefields RPAREN IS expression) (FunDecl $2  
-;      [(NEEWOM ID LPAREN typefields RPAREN AS type-id IS expression) (FunDecl $2
+     ;Function Declarations
+     [(NEEWOM func)       $2]
 
-
-     ;Scope Rules... Do we need these??
 
      ; ;LValues
 ;       (lvalue
