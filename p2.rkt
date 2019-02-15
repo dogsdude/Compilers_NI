@@ -118,6 +118,12 @@
     (program
      [(expression) (list $1)])
 
+    ;Declarations
+    (decs
+     [(DEFINE tydec) (cons $2 '())]
+     [(NI varbdec) (cons $2 '())]
+     [(NEEWOM funcdec) (cons $2 '())])
+       
     ;Type Declarations
     (tydec
      
@@ -157,7 +163,7 @@
      [(ID IS expression)         (VarDecl #f $1 $3)])
 
     ;Function Declarations
-    (func
+    (funcdec
      
      ;Non-recursive
      ;Procedure = function that does not return a value
@@ -171,11 +177,11 @@
      
      ;Recursive
      ;Procedure
-     [(ID LPAREN typefields RPAREN IS expression AND NEEWOM func)   (FunDecl $1 $3 #f $6 $9)]
-     [(ID LPAREN RPAREN IS expression AND NEEWOM func)   (FunDecl $1 '() #f $5 $8)]
+     [(ID LPAREN typefields RPAREN IS expression AND NEEWOM funcdec)   (FunDecl $1 $3 #f $6 $9)]
+     [(ID LPAREN RPAREN IS expression AND NEEWOM funcdec)   (FunDecl $1 '() #f $5 $8)]
      ;Function that returns a value
-     [(ID LPAREN typefields RPAREN AS type-id IS expression AND NEEWOM func) (FunDecl $1 $3 $6 $8 $11)]
-     [(ID LPAREN RPAREN AS type-id IS expression AND NEEWOM func) (FunDecl $1 '() $5 $7 $10)])
+     [(ID LPAREN typefields RPAREN AS type-id IS expression AND NEEWOM funcdec) (FunDecl $1 $3 $6 $8 $11)]
+     [(ID LPAREN RPAREN AS type-id IS expression AND NEEWOM funcdec) (FunDecl $1 '() $5 $7 $10)])
 
     ;    ;LValues
     ;    (lvalue
@@ -187,28 +193,43 @@
     ;     [(ID LBRACKET expression RBRACKET) (ArrayExpr $1 $3)]
     ;     )
 
-    ;    ;Sequencing... HOW TO EVALUATE EACH EXPRESSION?
-    ;    (seq
-    ;   
-    ;     [(expression RPAREN)    (cons ($1) '())]
-    ;     [(expression SEMI seq)  (cons ($1) $3)])
+    ;Sequencing... HOW TO EVALUATE EACH EXPRESSION?
+    (seq  
+     [(expression RPAREN)    (cons $1 '())]
+     [(expression SEMI seq)  (cons $1 $3)])
 
-    ;
+    ;ExprSeq -> for let statement
+    (exprseq
+     [(expression)  $1]
+     [(expression SEMI exprseq) (cons $1 $3)])
 
     ;Record Creation
     (record
      [(ID IS expression RBRACE) (cons (FieldAssign $1 $3) '())]
      [(ID IS expression COMMA record) (cons (FieldAssign $1 $3) $5)])
+
+    ;Function Calls
+    ;id()or id(expr1 {, expr2}*)
+    (funcall
+     [(expression RPAREN) (cons $1 '())]
+     [(expression COMMA funcall) (cons $1 $3)])
     
      
     ;OUR BUNCHES AND BUNCHES OF EXPRESSIONS!
     (expression
+
+     ;VarExpr
+     ;THIS MAY NEED TO BE DELETED/CHANGED
+     [(ID) (cons (VarExpr $1) '())]
      
      ;Type Declaration
      [(DEFINE tydec)        $2]
      
      ;Variable Declarations
      [(NI varbdec)               $2]
+
+     ;Function Declarations
+     [(NEEWOM funcdec)       $2]
 
      ;Integer Declaration
      [(NUM) (NumExpr $1)]
@@ -219,25 +240,19 @@
      ;Boolean Declarations
      [(BOOL)  (BoolVal $1)]
 
-     ;Function Declarations
-     [(NEEWOM func)       $2]
-
      ;LValues
      ;[(lvalue)  $1]
 
      ;Valueless Expression... I assumed this to be the same thing as NoVal
 
      ;Peng Expression, essentially a NULL
-     [(PENG)   (PengExpr '())]
+     [(PENG)   (PengExpr)]
 
      ;Sequencing Expressions
-     ;[(LPAREN expression SEMI seq)  $4]
+     [(LPAREN expression SEMI seq)  (cons $2 $4)]
 
      ;No Value
      [(LPAREN RPAREN)    (NoVal)]
-     
-     ;A let expression with nothing between in and end does not yield a value.
-     ;[(LET 
 
      ;Negation
      [(SUB NUM) (MathExpr (NumExpr "0") '- (NumExpr $2))]
@@ -268,9 +283,8 @@
      [(expression BOOLOR expression)   (LogicExpr $1 'or  $3)]
      [(expression BOOLAND expression)  (LogicExpr $1 'and $3)]
      
-     ;Presedence of Operators, Negate, ( * , / ) ( + , - ) ( & , | ) ( = , <= , <> , >= , > )
+     ;Presedence of Operators, Negate, ( * , / ) -> ( + , - ) -> ( & , | ) -> ( = , <= , <> , >= , > )
      ;How to represent this?
-     ;[(
 
      ;Associativity of operators
 
@@ -283,12 +297,12 @@
      ;The expression type-id '[' expr ']' of expr2 evaluations expr and expr2 (in that order) to find the number of elements and the initial value
      [(type-id LBRACKET expression RBRACKET OF expression)    (NewArrayExpr $1 $3 $6)]
 
-     ;Array & Record Assignment
+     ;Assignment
+     ;now l-value is expr
+     ;[(NOW l-value IS expression) (AssignmentExpr $2 $3)]
 
      ;Extent
      
-     ;Assignment
-
      ;if-then-else
      ;(conditionals
      [(IF expression THEN expression ELSE expression END)    (IfExpr $2 $4 $6)]
@@ -303,14 +317,14 @@
      [(WITH ID AS expression TO expression DO expression END) (WithExpr $2 $4 $6 $8)]
      
      ;Break
-     [(BREAK)    (BreakExpr '())]
+     [(BREAK)    (BreakExpr)]
      
-     ;let
+     ;Let
      ;let decs in exprseq end
-     ;[(LET 
+     [(LET decs IN exprseq END) (LetExpr $2 $4)]
 
      ;Parentheses
-     ;[(LPAREN expression RPAREN)    
+     [(LPAREN expression RPAREN) $2]   
     
      ))))
 
