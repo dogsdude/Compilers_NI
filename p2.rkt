@@ -117,19 +117,6 @@
     ;This is used to creat our list of expressions
     (program
      [(expression) (list $1)])
-  
-     ;Typefields
-     ;Are used in our type declarations so we define them here
-    (typefields
-     [(RPAREN)  ('())]
-     [(type-id ID COMMA typefields)    (cons (TypeField $2 $1) $4)]
-     [(type-id ID)  (cons (TypeField $2 $1) '())])
-     
-     ;Type-field 
-     ;Used in our type declaration, a type-id must be an ID
-     ;Used here because it is referred as a type-id frequentally in the documentation
-    (type-id
-     [(ID)      $1])
 
     ;Type Declarations
     (tydec
@@ -150,6 +137,19 @@
      [(type-id KIND AS LBRACE typefields RBRACE AND DEFINE tydec) (RecordType $1 $5 $9)]
      ;Arrays
      [(type-id KIND AS ARRAY OF type-id AND DEFINE tydec)  (ArrayType $1 $6 $9)])
+  
+    ;Typefields
+    ;Are used in our type declarations so we define them here
+    (typefields
+     [()  ('())]
+     [(type-id ID COMMA typefields)    (cons (TypeField $2 $1) $4)]
+     [(type-id ID)  (cons (TypeField $2 $1) '())])
+     
+    ;Type-field 
+    ;Used in our type declaration, a type-id must be an ID
+    ;Used here because it is referred as a type-id frequentally in the documentation
+    (type-id
+     [(ID)      $1])
 
     ;Variable Declarations
     (varbdec
@@ -157,32 +157,49 @@
      [(ID IS expression)         (VarDecl #f $1 $3)])
 
     ;Function Declarations
-    ;FunDecl (name args rettype body next)
-    ; defines a function in ni
-    ; these consist of the name of the function, the arguments to it,
-    ; the return type (which may be #f if it doesn't have one) and the body
-    ; finally, next points to the next, related definition (for mutual recursion)
     (func
      
-    ;Non-recursive
-    ;Procedure = function that does not return a value
+     ;Non-recursive
+     ;Procedure = function that does not return a value
      [(ID LPAREN typefields RPAREN IS expression) (FunDecl $1 $3 #f $6 '())]
      [(ID LPAREN RPAREN IS expression) (FunDecl $1 '() #f $5 '())]
-    ;Function that returns a value                                                         
+     ;Function that returns a value                                                         
      [(ID LPAREN typefields RPAREN AS type-id IS expression) (FunDecl $1 $3 $6 $8 '())]
      ;;BETTER WAY TO IMPLEMENT AN EMPTY TYPEFIELDS?
      [(ID LPAREN RPAREN AS type-id IS expression) (FunDecl $1 '() $5 $7 '())]
 
      
-    ;Recursive
-    ;Procedure
+     ;Recursive
+     ;Procedure
      [(ID LPAREN typefields RPAREN IS expression AND NEEWOM func)   (FunDecl $1 $3 #f $6 $9)]
      [(ID LPAREN RPAREN IS expression AND NEEWOM func)   (FunDecl $1 '() #f $5 $8)]
-    ;Function that returns a value
+     ;Function that returns a value
      [(ID LPAREN typefields RPAREN AS type-id IS expression AND NEEWOM func) (FunDecl $1 $3 $6 $8 $11)]
      [(ID LPAREN RPAREN AS type-id IS expression AND NEEWOM func) (FunDecl $1 '() $5 $7 $10)])
 
-     
+    ;    ;LValues
+    ;    (lvalue
+    ;     ;Variable
+    ;     [(ID) $1]
+    ;     ;Record
+    ;     [(ID DOT ID) (RecordExpr $1 $3)]
+    ;     ;Array
+    ;     [(ID LBRACKET expression RBRACKET) (ArrayExpr $1 $3)]
+    ;     )
+
+    ;    ;Sequencing... HOW TO EVALUATE EACH EXPRESSION?
+    ;    (seq
+    ;   
+    ;     [(expression RPAREN)    (cons ($1) '())]
+    ;     [(expression SEMI seq)  (cons ($1) $3)])
+
+    ;
+
+    ;Record Creation
+    (record
+     [(ID IS expression RBRACE) (cons (FieldAssign $1 $3) '())]
+     [(ID IS expression COMMA record) (cons (FieldAssign $1 $3) $5)])
+    
      
     ;OUR BUNCHES AND BUNCHES OF EXPRESSIONS!
     (expression
@@ -205,36 +222,29 @@
      ;Function Declarations
      [(NEEWOM func)       $2]
 
+     ;LValues
+     ;[(lvalue)  $1]
 
-     ; ;LValues
-;       (lvalue
-;        [(ID) $1]
-;        [(lvalue DOT ID) (RecordExpr $1 $2)]
-;        [(lvalue LBRACKET expression RBRACKET) (ArrayExpr $1 $3)]
-;        )
+     ;Valueless Expression... I assumed this to be the same thing as NoVal
 
-
-     ;Valueless Expression
-
-     ;peng Expression
-     ;[(PENG
+     ;Peng Expression, essentially a NULL
+     [(PENG)   (PengExpr '())]
 
      ;Sequencing Expressions
-     ;[(LPAREN expression SEMI expression)*]
+     ;[(LPAREN expression SEMI seq)  $4]
 
      ;No Value
-     ;(NoValue
      [(LPAREN RPAREN)    (NoVal)]
+     
      ;A let expression with nothing between in and end does not yield a value.
      ;[(LET 
 
      ;Negation
-     ;[(SUB NUM)
+     [(SUB NUM) (MathExpr (NumExpr "0") '- (NumExpr $2))]
 
-     ;Function Call
-     ;(FuncCall
-     ;[(ID LPAREN RPAREN)   (FuncallExpr
-     ;[(ID LPAREN expression RBRACE COMMA expression RBRACE * LPAREN)    (FuncallExpr
+     ;Function Call - 1st is normal call, 2nd is empty call
+     [(ID LPAREN funcall)  (FuncallExpr $1 $3)]
+     [(ID LPAREN RPAREN)   (FuncallExpr $1 '())]
 
      ;Arithmetic
      ;(arithmetic
@@ -244,44 +254,40 @@
      [(expression MULT expression)   (MathExpr  $1 '* $3)]
      
 
-     ;Boolean Comparison
+     ;Boolean Comparison, String Comp is parsed the same way as Boolean Comp so we don't need additional steps here
      ;(BoolComp
      [(expression EQ expression)     (BoolExpr $1 'eq $3)]
      [(expression LT expression)     (BoolExpr $1 'lt $3)]
      [(expression LE expression)     (BoolExpr $1 'le $3)]
      [(expression GE expression)     (BoolExpr $1 'ge $3)]
      [(expression GT expression)     (BoolExpr $1 'gt $3)]
-      
-     ;;; <> ???
-     ;[(expression
-      
-     ;String Comparison
-     ;[(STRING op STRING)       
+             
        
      ;Logic Operators, sub expression must be boolean expressions
      ;(LogOp
      [(expression BOOLOR expression)   (LogicExpr $1 'or  $3)]
      [(expression BOOLAND expression)  (LogicExpr $1 'and $3)]
      
-     ;Presedence of Operators... Nope
+     ;Presedence of Operators, Negate, ( * , / ) ( + , - ) ( & , | ) ( = , <= , <> , >= , > )
+     ;How to represent this?
+     ;[(
 
-     ;Associativity of operators... Nope
+     ;Associativity of operators
 
      ;Record Creation
      ;type-id '{'id is expr (, id is expr)*'}' or type-id '{' '}', for an empty expression, creates a new record of type type-id
-     ;(RecordCreate
-     ;[(type-id LBRACE ID IS expression LPAREN COMMA ID IS expression RPAREN MULT RBRACE) (NewRecordExpr
-     ;[(type-id LBRACE RBRACE) (NewRecordExpr $1 '())]
+     [(type-id LBRACE record) (NewRecordExpr $1 $3)]
+     [(type-id LBRACE RBRACE) (NewRecordExpr $1 '())]
 
      ;Array Creation
      ;The expression type-id '[' expr ']' of expr2 evaluations expr and expr2 (in that order) to find the number of elements and the initial value
      [(type-id LBRACKET expression RBRACKET OF expression)    (NewArrayExpr $1 $3 $6)]
 
-     ;Array & Record Assignment... Nope
+     ;Array & Record Assignment
 
-     ;Extent... Nope
+     ;Extent
      
-     ;Assignment... Nope
+     ;Assignment
 
      ;if-then-else
      ;(conditionals
@@ -294,15 +300,17 @@
      [(WHILE expression DO expression END) (WhileExpr $2 $4)]
      
      ;with, id - initexpr - fromexpr - toexpr
-     [(ID AS expression TO expression DO expression END) (WithExpr $1 $3 $5 $7)]
+     [(WITH ID AS expression TO expression DO expression END) (WithExpr $2 $4 $6 $8)]
      
-     ;break.... Nope
+     ;Break
+     [(BREAK)    (BreakExpr '())]
      
      ;let
      ;let decs in exprseq end
      ;[(LET 
 
      ;Parentheses
+     ;[(LPAREN expression RPAREN)    
     
      ))))
 
