@@ -183,15 +183,15 @@
      [(ID LPAREN typefields RPAREN AS type-id IS expression AND NEEWOM funcdec) (FunDecl $1 $3 $6 $8 $11)]
      [(ID LPAREN RPAREN AS type-id IS expression AND NEEWOM funcdec) (FunDecl $1 '() $5 $7 $10)])
 
-    ;    ;LValues
-    ;    (lvalue
-    ;     ;Variable
-    ;     [(ID) $1]
-    ;     ;Record
-    ;     [(ID DOT ID) (RecordExpr $1 $3)]
-    ;     ;Array
-    ;     [(ID LBRACKET expression RBRACKET) (ArrayExpr $1 $3)]
-    ;     )
+    ;LValues
+    (l-value
+     ;Variable
+     [(ID) (VarExpr $1)]
+     ;Record
+     [(l-value DOT ID) (RecordExpr $1 $3)]
+     ;Array
+     [(ID LBRACKET expression RBRACKET) (ArrayExpr $1 $3)]
+     )
 
     ;Sequencing... HOW TO EVALUATE EACH EXPRESSION?
     (seq  
@@ -200,7 +200,7 @@
 
     ;ExprSeq -> for let statement
     (exprseq
-     [(expression)  $1]
+     [(expression)  (cons $1 '())]
      [(expression SEMI exprseq) (cons $1 $3)])
 
     ;Record Creation
@@ -218,10 +218,6 @@
     ;OUR BUNCHES AND BUNCHES OF EXPRESSIONS!
     (expression
 
-     ;VarExpr
-     ;THIS MAY NEED TO BE DELETED/CHANGED
-     [(ID) (cons (VarExpr $1) '())]
-     
      ;Type Declaration
      [(DEFINE tydec)        $2]
      
@@ -241,7 +237,7 @@
      [(BOOL)  (BoolVal $1)]
 
      ;LValues
-     ;[(lvalue)  $1]
+     [(l-value)  $1]
 
      ;Valueless Expression... I assumed this to be the same thing as NoVal
 
@@ -282,11 +278,6 @@
      ;(LogOp
      [(expression BOOLOR expression)   (LogicExpr $1 'or  $3)]
      [(expression BOOLAND expression)  (LogicExpr $1 'and $3)]
-     
-     ;Presedence of Operators, Negate, ( * , / ) -> ( + , - ) -> ( & , | ) -> ( = , <= , <> , >= , > )
-     ;How to represent this?
-
-     ;Associativity of operators
 
      ;Record Creation
      ;type-id '{'id is expr (, id is expr)*'}' or type-id '{' '}', for an empty expression, creates a new record of type type-id
@@ -295,14 +286,12 @@
 
      ;Array Creation
      ;The expression type-id '[' expr ']' of expr2 evaluations expr and expr2 (in that order) to find the number of elements and the initial value
-     [(type-id LBRACKET expression RBRACKET OF expression)    (NewArrayExpr $1 $3 $6)]
+     [(ID LBRACKET expression RBRACKET OF expression)    (NewArrayExpr $1 $3 $6)]
 
      ;Assignment
      ;now l-value is expr
-     ;[(NOW l-value IS expression) (AssignmentExpr $2 $3)]
+     [(NOW l-value IS expression) (AssignmentExpr $2 $4)]
 
-     ;Extent
-     
      ;if-then-else
      ;(conditionals
      [(IF expression THEN expression ELSE expression END)    (IfExpr $2 $4 $6)]
