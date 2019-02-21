@@ -122,7 +122,10 @@
     (decs
      [(DEFINE tydec) (cons $2 '())]
      [(NI varbdec) (cons $2 '())]
-     [(NEEWOM funcdec) (cons $2 '())])
+     [(NEEWOM funcdec) (cons $2 '())]
+     [(DEFINE tydec decs) (cons $2 $3)]
+     [(NI varbdec decs) (cons $2 $3)]
+     [(NEEWOM funcdec decs) (cons $2 $3)])
        
     ;Type Declarations
     (tydec
