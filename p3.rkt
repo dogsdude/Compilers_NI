@@ -16,8 +16,11 @@
     (extend-env tenv 'bool   (types:make-BoolType))
     (extend-env tenv 'peng   (types:make-PengType))
     (extend-env tenv 'void   (types:make-VoidType));;; NOT SURE ABOUT THIS ONE...
+    
     ;test our x
-    (extend-env tenv 'x (types:make-IntType))
+    ;test our arraytype
+    (extend-env tenv 'x       (types:make-IntType))
+    (extend-env tenv 'foo     (types:make-ArrayType 'arr (types:make-StringType)))
 ))
 
 (define typeEnv (make-parameter (init-typeEnv)))
@@ -36,29 +39,31 @@
 (define (typecheck ast env)
   (let ([type-of-expr
          (match ast
-           ;;; Base Type Cases
 
-           ;Checks our strings
-;           ["int"        (types:make-IntType)]
-;           ["string"     (types:make-StringType)]
-;           ["bool"       (types:make-BoolType)]
+           [(list _ ... _ ) (let ([first (first ast)]
+                                  [rest  (rest ast)])
+                              (cond
+                                [(equal? rest '()) (typecheck first env)]
+                                [else (typecheck first env) (typecheck rest env)]))]
            
            [(NumExpr _ ) (types:make-IntType)]
            [(StringExpr _ ) (types:make-StringType)]
            [(BoolVal _ ) (types:make-BoolType)]
            [(PengExpr) (types:make-PengType)]
 
-           ;This may not work...
            [(VarExpr name) (apply-env env (string->symbol name))]
 
            ;THIS WORKS!
            [(ArrayExpr name index)
-            (let ([t1 (typecheck index env)]
-                  [t2 (apply-env env (string->symbol name))])
-              (cond [(types:IntType? t1) t2]
+            (let* ([t1 (typecheck index env)]
+                  [t2 (apply-env env (string->symbol name))]
+                  [elementType (types:ArrayType-element-type t2)])
+              (cond [(equal? #f t2)           (error "no arraytype of this type which exists")]
+                    [(types:IntType? t1) elementType]
                     [else (error "Index must be an int")]))]
 
            [(NoVal)   (types:make-VoidType)]
+           
            [(BreakExpr)   (types:make-VoidType)]
            
            [(MathExpr e1 op e2)
@@ -84,34 +89,48 @@
                     [else (error "Types: " t1 " and " t2 " are not the same! Should both be the same... ")])
               )]
            
-           [(VarDecl type _ expr)
+           [(VarDecl type name expr)
             (let ([t1 (if (equal? type #f) #f (apply-env env (string->symbol type))) ]
                   [t2 (typecheck expr env)])
-              (cond [(and (equal? t1 t2)) (types:make-VarValue t1)]
-                    [(and (not (equal? t2 types:PengType)) (equal? type #f) (types:make-VarValue t2))]
+              (cond [(and (equal? t1 t2)) (extend-env env (string->symbol name) t2)]
+                    [(and (not (equal? t2 types:PengType)) (equal? type #f) (extend-env env (string->symbol name) t2))]
                     [else (error "Types: " t1 " and " t2 " are not the same! Should both be the same... ")])
               )]
 
            [(TypeField name type) (extend-env env (string->symbol name)) (typecheck type env)]
 
-           #;[(NameType name kind next) (let* ([newenv
-            (let* ([namesym (string->symbol name)]
-                  [kindsym (string->symbol kind)]
-                  [t2 (if (eq? next '()) #f (typecheck next env))]
-                  [t1 (if (not (eq? t2 #f)) (apply-env t2 kindsym) (apply-env env kindsym))])
-              (cond
-                [(and (not (eq? #f t1)) (not(eq? #f t2))) (extend-env t2 namesym t1)]
-                [(not (eq? #f t1))(extend-env env namesym t1)]
-                [else (error "Nope. This type does not exist" t1)]))])
-                                             (apply-env newenv (string->symbol name)))]
+           [(NameType name kind '()) (let ([kind-t (apply-env env (string->symbol kind))]
+                                          [l-exists (apply-env env (string->symbol name))])
+                                     (cond
+                                       [(equal? kind-t #f) (error "kind has to be an existing type" kind)]
+                                       [l-exists (error "name already in use in another place" l-exists)]
+                                       [else      (extend-env env (string->symbol name) kind-t) kind-t]))] 
+            
+           [(NameType name kind next) (let ([next-t (typecheck next env)]
+                                            [kind-t (apply-env env (string->symbol kind))]
+                                            [l-exists (apply-env env (string->symbol name))])
+                                            (cond
+                                              [(equal? kind-t #f) (error "kind has to be an existing type" kind)]
+                                              [l-exists (error "name already in use in another place" l-exists)]
+                                              [else (extend-env env (string->symbol name) kind-t) next-t]))]
+
+           [(ArrayType name kind '()) (let* ([kind-t (apply-env env (string->symbol kind))]
+                                            [l-exists (apply-env env (string->symbol name))]
+                                            [arrtype (types:make-ArrayType '() kind-t )])
+                                            (cond
+                                              [(equal? kind-t #f) (error "kind has to be an existing type" kind)]
+                                              [l-exists (error "name already in use in another place" l-exists)]
+                                              [else (extend-env env (string->symbol name) arrtype) arrtype]))]
            
-            ;Can't do any mutually recursive things here... somehow need to get our old environments out of calls, but can't 
-           #;[(NameType name kind next) (let* ([nexttype (if (eq? next '()) #f (typechek next env))]
-                                             [kindtype (apply-env env (string->symbol kind))])
-                                             (cond
-                                               [(not (eq? kindtype #f)) (extend-env env (string->symbol kind) kindtype) kindtype]
-                                                                        (if (eq? next '()) kindtype nexttype))
-                                               [else "error!" nexttype kindtype])]
+           [(ArrayType name kind next) (let* ([next-t (typecheck next env)]
+                                             [kind-t (apply-env env (string->symbol kind))]
+                                             [l-exists (apply-env env (string->symbol name))]
+                                             [arrtype (types:make-ArrayType '() kind-t)])
+                                             
+                                         (cond
+                                           [(equal? kind #f) (error "kind has to be an existing type" kind)]
+                                           [l-exists (error "name already in use in another place" l-exists)]
+                                           [else (extend-env (string->symbol name) arrtype) next-t]))]
 
            [(IfExpr test true false) (let*([test-t  (typecheck test env)]
                                            [true-t  (typecheck true env)]
@@ -157,6 +176,18 @@
                                       [decs-t (typecheck decs new-env)]
                                       [exprs-t(typecheck exprs new-env)])
                                      exprs-t)]
+
+           [(NewArrayExpr typeid size init) (let* ([typeid-t (apply-env env (string->symbol typeid))]
+                                                   [size-t (typecheck size env)]
+                                                   [init-t (typecheck init env)])
+                                              (cond
+                                                [(equal? typeid-t #f) (error "Name does not exist in environment " typeid-t)]
+                                                [(not (types:IntType? size-t)) (error "Size has to be an int " size-t)]
+                                                [(not (equal? init-t (types:ArrayType-element-type typeid-t))) (error "These must be the same type" init-t typeid-t)]
+                                                [else typeid-t]))]
+
+           
+                                                 
                                            
             
            #;[(NewArrayExpr name num-elements initial-val)
