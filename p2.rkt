@@ -204,6 +204,8 @@
     ;ExprSeq -> for let statement
     (exprseq
      [(expression)  (cons $1 '())]
+     ;USED TO PASS test case 1
+     [()       '()]
      [(expression SEMI exprseq) (cons $1 $3)])
 
     ;Record Creation
@@ -254,7 +256,7 @@
      [(LPAREN RPAREN)    (NoVal)]
 
      ;Negation
-     [(SUB NUM) (MathExpr (NumExpr "0") '- (NumExpr $2))]
+     [(SUB expression) (MathExpr (NumExpr "0") '- $2)]
 
      ;Function Call - 1st is normal call, 2nd is empty call
      [(ID LPAREN funcall)  (FuncallExpr $1 $3)]
