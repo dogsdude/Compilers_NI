@@ -127,6 +127,8 @@
   (println "declare %struct.string* @intToString(i64 %val)")
   (println "declare %struct.array* @makeArray(i64 %numElements)")
   (println "declare i64* @getElementAddressAt(%struct.array* %arr, i64 %index)")
+  (println "declare i64* @stringCompare(%struct.string* nocapture readonly %str1,
+            %struct.string* nocapture readonly %str2)")
   (println "; Function Attrs: nounwind")
   (println "declare noalias i8* @malloc(i64) #1"))
 
@@ -235,7 +237,7 @@
   (let ([v1str (if (Result? v1) (result->string v1) v1)]
         [v2str (if (Result? v2) (result->string v2) v2)])
     (let ([resstr (result->string result)]
-          [tyname "i64 "])
+          [tyname "i1 "])
       (cond
         [(not (and (symbol? logicsym) (or (string? v1) (Result? v1)) (or (string? v2) (Result? v2))))
          (raise-arguments-error 'emit-logic "logicsym should be a symbol and v1 and v2 should be Result (or string) types"
@@ -248,14 +250,119 @@
         [else (raise-arguments-error 'emit-logic "logicsym must be 'BOOLAND, or 'BOOLOR"
                                      "logicsym" logicsym)])
       ; return the result that was created
+      result)))
+
+;Emit Boolean Comparison
+(define (emit-boolexpr compsym v1 v2 [result (make-temp-result)])
+  (let ([v1str (if (Result? v1) (result->string v1) v1)]
+        [v2str (if (Result? v2) (result->string v2) v2)])
+    (let ([resstr (result->string result)]
+          [tyname "i1 "])
+      (cond
+        [(not (and (symbol? compsym) (or (string? v1) (Result? v1)) (or (string? v2) (Result? v2))))
+         (raise-arguments-error 'emit-boolexpr "compsym should be a symbol and v1 and v2 should be Result (or string) types"
+                                "compsym" compsym
+                                "v1" v1
+                                "v2" v2)]
+        
+        [(or(eq? compsym 'gt)) (println resstr " = icmp sgt " tyname v1str ", " v2str)]
+        [(or(eq? compsym 'lt)) (println resstr " = icmp slt " tyname v1str ", " v2str)]
+        [(or(eq? compsym 'eq)) (println resstr " = icmp eq " tyname v1str ", " v2str)]
+        [(or(eq? compsym 'ne)) (println resstr " = icmp ne " tyname v1str ", " v2str)]
+        [(or(eq? compsym 'ge)) (println resstr " = icmp sge " tyname v1str ", " v2str)]
+        [(or(eq? compsym 'le)) (println resstr " = icmp sle " tyname v1str ", " v2str)]
+        [else (raise-arguments-error 'emit-logic "logicsym must be 'gt, 'lt, 'eq, 'ne, 'ge, 'le"
+                                     "compsym" compsym)])
+      ; return the result that was created
       result)))  
-    
+
+;Emit String Comparison
+(define (emit-stringcomp compsym v1 v2 [result (make-temp-result)])
+  (let
+  ([ res (emit-funcall "stringCompare" (make-IntType) `(,v1 ,v2) `(,(make-StringType) ,(make-StringType)))])
+    (emit-boolexpr compsym res "0")))
+
+;Emit Boolean
+(define (emit-bool val)
+  (let([resstr (result->string (make-temp-result))])
+  (println resstr " = add i1 " val ", 0")
+    resstr))
+
+
+;Emit Phi
+(define (emit-phi type true-result true-label false-result false-label)
+  (let ([result (make-temp-result)])
+    (println(result->string result)
+            " = phi " (get-type-name) " [ "
+            (result->string true-result) ", %" (Label-name true-label) " ], [ "
+            (result->string false-result) ", %" (Label-name false-label) " ]")
+    result))
+
+;Emit Funcation Calls
+(define (emit-funcall funname rettype args types)
+  (let ([result (if (VoidType? rettype) #f (make-temp-result))])
+    (cond [(not (eq? result #f))
+           (let* ([resstr (result->string result)])
+             (print resstr " = "))])
+    (print "call " (get-type-name rettype) " @" funname "( ")
+
+    ;Print the args and types
+    (let ([count 0]
+          [max (sub1 (length args))])
+      (for-each (lambda (argname type)
+                  (print (get-type-name type) " ")
+                  (print (if (string? argname)
+                             argname
+                             (result->string argname))
+                         (if (< count max) ", " ""))
+                  (set! count (add1 count)))
+                args types))
+    (println ")")
+    result))
+  
+;Emit String
+(define string-size-hash (make-parameter (make-hash)))
+(define (emit-literal-string str)
+  ;;; Literal string are global definitions
+  (begin-global-defn)
+  (let* ([str-const-result (make-global-result)]
+         [result (make-global-result)]
+         [llvmstr (string-replace
+                   (substring str 1 (sub1 (string-length str))) "\\n" "\\0A")]
+         [lenval (add1 (- (string-length llvmstr)
+                          (* 2 (- (string-length llvmstr)
+                                  (- (string-length str) 2)))))]
+         [len (number->string lenval)]
+         [pointerty (string-append "[" len " x i8]")])
+    (println (result->string str-const-result) " = global "
+             pointerty " c\"" llvmstr "\\00\", align 1")
+    (println (result->string result) " = global %struct.string { i64 "
+             (number->string (sub1 lenval)) ", i8*
+             getelmentprt inbounds (" pointerty ", " pointerty "* "
+                                      (result->string str-const-result)
+                                      ", i32 0, i32 0) }, align 8")
+     (end-global-defn)
+     (hash-set! (string-size-hash) str len)
+      result))
+
+; Emit a conditional branch
+(define (emit-conditional-branch test tlabel flabel)
+  (println "br i1 " (result->string test) ", label %"
+           (Label-name tlabel) ", label %" (Label-name flabel)))
+
+; Emit a jump
+(define (emit-jump label)
+  (println "br label %" (Label-name label)))
+
+; Emit a label
+(define (emit-label label)
+  (println (Label-name label) ":"))
 
 (define (get-type-name nitype)
   (let ([ty (actual-type nitype)])
     (match ty
       [(IntType _) "i64"]
-      [(BoolType _) "i8"]
+      [(BoolType _) "i1"]
       [(StringType _) "%struct.string *"]
       [(VoidType _) "void"]
       [(ArrayType _ _ _) "%struct.array *"]
